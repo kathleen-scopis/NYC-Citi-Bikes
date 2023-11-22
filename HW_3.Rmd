@@ -1,0 +1,362 @@
+---
+title: "Post-COVID effects on ridesharing in NYC"
+author: "Kathleen Scopis"
+output: 
+  html_document:
+      toc: true
+      toc_float: true
+      code_folding: hide
+---
+
+## How has New York's Citi Bike usage changed since COVID?
+
+Citi Bike, a popular ridesharing program found in NYC, rents out manual and electric bikes across the city through docking stations found next to sidewalks and pedestrian streets. Shortly after the program's inception, the bikes have become a mainstay in New York's commuting options, particularly among those traveling around Manhattan. In the early months of 2020, as COVID-19 struck down many of NYC's daily activities, one of the City's most vital resources, the MTA transit system, saw historic drops in ridership as people stayed home and chose other less crowded options.
+
+While the pandemic had obvious consequences for MTA ridership, it is still unclear on how biking commutes have been affected. The following report explores changes in Citi Bike usage in the age of COVID.
+
+### Background Resources and Data Limitations
+
+All data obtained from Citi Bike's website: [linked here](https://citibikenyc.com/)
+
+Analysis includes data representing all reported rides during January and June of the following years: 2019, 2021, and 2023.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Setup + Data Preparation
+
+### Constructing a formatting standard
+
+Before we can begin visualizing the data, it is helpful to set up a few formatting standards that will be used throughout the report. The following code chunk sets a default format for text sizes, spacing, and fonts, as well as color palettes and background hue. To reveal code, select the button to the right.
+
+```{r mapthemes, message=FALSE, warning= FALSE}
+library(ggplot2)
+
+plotTheme <- theme(
+  plot.title =element_text(size=12),
+  plot.subtitle = element_text(size=10),
+  plot.caption = element_text(size = 6),
+  axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+  axis.text.y = element_text(size = 10),
+  axis.title.y = element_text(size = 10),
+  panel.background=element_blank(),
+  plot.background=element_blank(),
+  panel.grid.major=element_line(colour="#D0D0D0",size=.2),
+  axis.ticks=element_blank())
+
+palette1 <- c("#0062a8","lightgrey")
+
+```
+
+### Load data and packages
+
+The analysis begins by activating all required packages and relevant data. The following packages will be used:
+
+-   tidycensus
+
+-   dplyr
+
+-   sf
+
+-   lubridate
+
+-   gridExtra
+
+-   scales
+
+To observe recorded trips, data is pulled from the Citi Bike website (linked in the Introduction).
+
+```{r load data, results=FALSE}
+# load in required libraries, census key, and data
+library(tidycensus)
+library(dplyr)
+library(sf)
+library(lubridate)
+library(gridExtra)
+library(scales)
+
+Jan19 <- read.csv("Data/201901.csv")
+June19 <- read.csv("Data/201906.csv")
+
+Jan21 <- read.csv("Data/202101.csv")
+June21 <- read.csv("Data/202106.csv")
+
+Jan23 <- read.csv("Data/202301.csv")
+June23 <- read.csv("Data/202306.csv")
+
+```
+
+### Data Cleaning
+
+To assist in creating the charts, some data cleaning is needed. The following code cleans the names of the starting stations, as well as create a dummy variable to determine whether the trip was completed by an existing Citi Bike subscriber, or a more casual user.
+
+```{r data cleaning}
+
+############# RENAME STARTING STATION NAME #################
+
+June21 <- June21 %>%
+  rename(start.station.name = start_station_name)
+
+Jan23 <- Jan23 %>%
+  rename(start.station.name = start_station_name)
+
+June23 <- June23 %>%
+  rename(start.station.name = start_station_name)
+
+
+
+#################### SET SUBSCRIBER FLAG ####################
+Jan19 <- Jan19 %>%
+  mutate(Subscriber = ifelse(usertype == "Subscriber", 1, 0))
+
+Jan21 <- Jan21 %>%
+  mutate(Subscriber = ifelse(usertype == "Subscriber", 1, 0))
+
+Jan23 <- Jan23 %>%
+  mutate(Subscriber = ifelse(member_casual == "member", 1, 0))
+
+
+June19 <- June19 %>%
+  mutate(Subscriber = ifelse(usertype == "Subscriber", 1, 0))
+
+June21 <- June21 %>%
+  mutate(Subscriber = ifelse(member_casual == "member", 1, 0))
+
+June23 <- June23 %>%
+  mutate(Subscriber = ifelse(member_casual == "member", 1, 0))
+
+
+
+################## BY  INDIVIDUAL MONTH #####################
+
+ridesJan19 <- nrow(Jan19)
+ridesJune19 <- nrow(June19)
+
+ridesJan21 <- nrow(Jan21)
+ridesJune21 <- nrow(June21)
+
+ridesJan23 <- nrow(Jan23)
+ridesJune23 <- nrow(June23)
+
+
+####################### BY MONTH ############################
+
+rides_Jan_Total <- data.frame(
+    Year = c("2019", "2021", "2023"),
+    Rides = c(ridesJan19, ridesJan21, ridesJan23)
+)
+
+rides_June_Total <- data.frame(
+    Year = c("2019", "2021", "2023"),
+    Rides = c(ridesJune19, ridesJune21, ridesJune23)
+)
+
+
+#################### RIDES PER YEAR #########################
+
+rides_2019 <- data.frame(
+    Month = c("January", "June"),
+    Rides = c(ridesJan19, ridesJune19)
+)
+
+rides_2021 <- data.frame(
+    Month = c("January", "June"),
+    Rides = c(ridesJan21, ridesJune21)
+)
+
+rides_2023 <- data.frame(
+    Month = c("January", "June"),
+    Rides = c(ridesJan23, ridesJune23)
+)
+
+
+trips_2019 <-  rbind(Jan19, June19)
+trips_2023 <-  rbind(Jan23, June23)
+
+
+
+
+# SETTING UP SUBSCRIPTION BAR CHART
+
+# BY YEAR
+Jan19_toselect <- Jan19 %>% select(start.station.name, Subscriber)
+June19_toselect <- June19 %>% select(start.station.name, Subscriber)
+combined19_toselect <- rbind(Jan19_toselect, June19_toselect)
+Subscribers_2019 <- as.data.frame(table(combined19_toselect$Subscriber))
+
+
+Jan21_toselect <- Jan21 %>% select(start.station.name, Subscriber)
+June21_toselect <- June21 %>% select(start.station.name, Subscriber)
+combined21_toselect <- rbind(Jan21_toselect, June21_toselect)
+Subscribers_2021 <- as.data.frame(table(combined21_toselect$Subscriber))
+
+
+Jan23_toselect <- Jan23 %>% select(start.station.name, Subscriber)
+June23_toselect <- June23 %>% select(start.station.name, Subscriber)
+combined23_toselect <- rbind(Jan23_toselect, June23_toselect)
+Subscribers_2023 <- as.data.frame(table(combined23_toselect$Subscriber))
+
+
+Subscribers_2019$Year <- "2019"
+Subscribers_2021$Year <- "2021"
+Subscribers_2023$Year <- "2023"
+
+Subscribers_Total <- rbind(Subscribers_2019, Subscribers_2021, Subscribers_2023)
+
+
+# BY MONTH
+SubscriberJan19 <- as.data.frame(table(Jan19_toselect$Subscriber))
+SubscriberJan19$Date <- "January '19"
+SubscriberJune19 <- as.data.frame(table(June19_toselect$Subscriber))
+SubscriberJune19$Date <- "June '19"
+
+SubscriberJan21 <- as.data.frame(table(Jan21_toselect$Subscriber))
+SubscriberJan21$Date <- "January '21"
+SubscriberJune21 <- as.data.frame(table(June21_toselect$Subscriber))
+SubscriberJune21$Date <- "June '21"
+
+SubscriberJan23 <- as.data.frame(table(Jan23_toselect$Subscriber))
+SubscriberJan23$Date <- "January '23"
+SubscriberJune23 <- as.data.frame(table(June23_toselect$Subscriber))
+SubscriberJune23$Date <- "June '23"
+
+Subscribers_TotalAllDates <- rbind(SubscriberJan19, SubscriberJune19, SubscriberJan21, SubscriberJune21, SubscriberJan23, SubscriberJune23)
+
+```
+
+## Some Helpful Charts
+
+### Total rides over time
+
+The chart below displays the relationship between ridership and time of year across the studied timeframe. Warmer months saw significantly more riders overall, with the greatest increase happening between 2019 and 2021. Moreover, ridership has been increasing across the board since 2020, signaling a potential correlation between Citi bike usage and more permanent post pandemic shifts in commute preferences.
+
+```{r chart1 lines}
+
+# plot points and lines
+ggplot() +
+  geom_point(data = rides_Jan_Total, aes(x = Year, y = Rides, color = "June"), size = 4) +
+  geom_point(data = rides_June_Total, aes(x = Year, y = Rides, color = "January"), size = 4) +
+  geom_line(data = rides_Jan_Total, aes(x = Year, y = Rides, group = 1), linetype = 'dashed', color = "#59c5e3") +
+  geom_line(data = rides_June_Total, aes(x = Year, y = Rides, group = 1), linetype = 'dashed', color = "#0062a8") +
+  labs(
+    title = "Biking has become more popular in post-COVID NYC",
+    subtitle = "...particularly during warmer months",
+    x = "Year",
+    y = "Number of Rides"
+  ) +
+  scale_y_continuous(labels = scales::label_comma()) +
+  scale_color_manual(
+    name = NULL,
+    values = c("June" = "#59c5e3", "January" = "#0062a8"),
+    labels = c("June", "January")
+  ) +
+  theme_minimal()
+
+```
+
+### Most popular station over time
+
+How have trip behavior changed since COVID? The charts below show the most popular stations to begin trips from in 2019 and 2023. Overall, there appears to be little overlap in popular starting stations, with only two stations making the list both times (West St/Chambers St, E 18th St/Broadway). This may point to a change in neighborhoods involved with Citi Bike usage, signaling a shift in who is routinely using the bikes for their daily commute.
+
+Tourism and short-term visitors are another factor that may contribute to the starting station location. A majority of these stations are located in Midtown Manhattan, particularly near landmarks like Broadway and Times Square, as well as major transit hubs like Penn Station and Grand Central Terminal.
+
+```{r chart 2}
+# group start station names by number of rides each
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+station_usage <- trips_2019 %>%
+  group_by(start.station.name) %>%
+  summarize(usage_count = n())
+
+station_usage <- station_usage %>% arrange(desc(usage_count))
+top_10_station_2019 <- head(station_usage, 10)
+
+df <- top_10_station_2019 %>%
+  mutate(start.station.name = reorder(start.station.name, usage_count))
+
+
+SS19 <- ggplot(data = df, aes(y = start.station.name, x = usage_count)) +
+  geom_bar(stat = "identity", aes(fill = start.station.name != "Pershing Square North"), show.legend = FALSE) +
+  scale_fill_manual(values = alpha(palette1, 0.8), guide = FALSE) + 
+  xlab(NULL) +
+  ylab('2019') +
+  plotTheme
+
+
+
+
+
+# group start station names by number of rides each
+station_usage <- trips_2023 %>%
+  group_by(start.station.name) %>%
+  summarize(usage_count = n())
+
+station_usage <- station_usage %>% arrange(desc(usage_count))
+top_10_station_2023 <- head(station_usage, 10)
+
+df <- top_10_station_2023 %>%
+  mutate(start.station.name = reorder(start.station.name, usage_count))
+
+
+SS23 <- ggplot(data = df, aes(y = start.station.name, x = usage_count)) +
+  geom_bar(stat = "identity", aes(fill = start.station.name != "W 21 St & 6 Ave"), show.legend = FALSE) +
+  scale_fill_manual(values = alpha(palette1, 0.8), guide = FALSE) + 
+  xlab('Rides') +
+  ylab('2023') +
+  plotTheme
+
+grid.arrange(SS19 , SS23, nrow =2, ncol = 1)
+
+```
+
+### Membership in Post-COVID
+
+How has COVID impacted the subscription demographic of riders? All Citi Bike rides are tied to one of two types of riders: month/annual subscribers or casual users (non-subscribers). While time of year appears to play a role in subscriber use (consistently less subscriber-related rides occur in January than June), casual riders have increased over the past few years, peaking in Summer 2021. This might be tied to this season being the first summer since the COVID vaccine became widely available, in turn leading to a lifting of many social gathering and dining restrictions.
+
+```{r chart 3 stacked bar}
+membershipJan19 <- user_type_counts <- table(Jan19$usertype)
+
+subJan19 <- nrow(Jan19 %>% filter(usertype == 'Subscriber'))
+cusJan19 <- nrow(Jan19 %>% filter(usertype == 'Customer'))
+
+memberRatio <- subJan19/cusJan19
+
+rides_2023 <- data.frame(
+    Month = c("January", "June"),
+    UserType = c(ridesJan23, ridesJune23)
+)
+
+# STACKED BAR CHART BY DATES
+
+Subscribers_TotalAllDates$Date <- factor(
+  Subscribers_TotalAllDates$Date, 
+  levels = unique(Subscribers_TotalAllDates$Date)
+)
+SubscribePlotTotalDates <- ggplot(
+  data = Subscribers_TotalAllDates, 
+  aes(
+    x = Date, 
+    y = Freq, 
+    fill = Var1
+  )) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  labs(
+    title = "Casual ridership has increased overtime, particularly during warmer months.", subtitle = "in June '21, more than 1 in 4 riders didn't use a membership"
+  ) + 
+  scale_fill_manual(
+    values = alpha(palette1, 0.8),
+    labels = c("non-subscriber", "subscriber"),
+    name = NULL
+  ) +  
+  plotTheme +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  )
+
+SubscribePlotTotalDates
+
+```
